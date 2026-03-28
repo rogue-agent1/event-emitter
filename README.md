@@ -1,5 +1,11 @@
 # event-emitter
-Event emitter / pub-sub. Zero dependencies.
+
+Event-driven programming pattern.""".
+
+Zero dependencies. Python 3.8+.
+
+## Usage
+
 ```bash
-python3 event_emitter.py
+python3 event_emitter.py --help
 ```
