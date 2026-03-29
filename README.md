@@ -1,11 +1,17 @@
-# event-emitter
+# event_emitter
 
-Event emitter with once, wildcard, and priority listeners.
+Event emitter with typed events and wildcards
+
+Single-file, zero-dependency Python CLI tool.
 
 ## Usage
 
 ```bash
-python3 event_emitter.py test
+python event_emitter.py --help
 ```
 
-Zero dependencies. Python 3.8+.
+## Test
+
+```bash
+python -c "import event_emitter; event_emitter.test()"
+```

@@ -1,65 +1,73 @@
 #!/usr/bin/env python3
-"""event_emitter - Event emitter with once, wildcard, and priority listeners."""
-import sys
-from collections import defaultdict
+"""Event emitter with wildcards and once listeners."""
+import re
 
 class EventEmitter:
     def __init__(self):
-        self._listeners = defaultdict(list)
+        self._listeners = {}
         self._once = set()
-    def on(self, event, fn, priority=0):
-        self._listeners[event].append((priority, fn))
-        self._listeners[event].sort(key=lambda x: -x[0])
-    def once(self, event, fn, priority=0):
-        self._once.add((event, id(fn)))
-        self.on(event, fn, priority)
-    def off(self, event, fn=None):
-        if fn is None:
-            self._listeners[event] = []
-        else:
-            self._listeners[event] = [(p, f) for p, f in self._listeners[event] if f is not fn]
-    def emit(self, event, *args, **kwargs):
-        results = []
+
+    def on(self, event: str, callback):
+        self._listeners.setdefault(event, []).append(callback)
+        return self
+
+    def once(self, event: str, callback):
+        self.on(event, callback)
+        self._once.add((event, id(callback), callback))
+        return self
+
+    def off(self, event: str, callback=None):
+        if callback is None:
+            self._listeners.pop(event, None)
+        elif event in self._listeners:
+            self._listeners[event] = [cb for cb in self._listeners[event] if cb is not callback]
+
+    def emit(self, event: str, *args, **kwargs):
+        listeners = []
+        for pattern, cbs in self._listeners.items():
+            if pattern == event or (pattern.endswith("*") and event.startswith(pattern[:-1])):
+                listeners.extend(cbs)
         to_remove = []
-        for priority, fn in self._listeners.get(event, []):
-            results.append(fn(*args, **kwargs))
-            if (event, id(fn)) in self._once:
-                to_remove.append((event, fn))
-                self._once.discard((event, id(fn)))
-        # wildcard
-        for priority, fn in self._listeners.get("*", []):
-            results.append(fn(event, *args, **kwargs))
-        for ev, fn in to_remove:
-            self.off(ev, fn)
-        return results
-    def listener_count(self, event):
+        for cb in listeners:
+            cb(*args, **kwargs)
+            for key in self._once:
+                if key[2] is cb:
+                    to_remove.append((key[0], cb))
+        for ev, cb in to_remove:
+            self.off(ev, cb)
+            self._once = {k for k in self._once if k[2] is not cb}
+
+    def listener_count(self, event: str) -> int:
         return len(self._listeners.get(event, []))
+
+if __name__ == "__main__":
+    ee = EventEmitter()
+    ee.on("data", lambda x: print(f"Got: {x}"))
+    ee.emit("data", 42)
 
 def test():
     ee = EventEmitter()
-    log = []
-    ee.on("data", lambda x: log.append(f"a:{x}"))
-    ee.on("data", lambda x: log.append(f"b:{x}"), priority=10)
-    ee.emit("data", 42)
-    assert log == ["b:42", "a:42"]  # priority order
-    # once
-    once_log = []
-    ee.once("ping", lambda: once_log.append(1))
-    ee.emit("ping")
-    ee.emit("ping")
-    assert once_log == [1]
-    # wildcard
+    results = []
+    ee.on("test", lambda x: results.append(x))
+    ee.emit("test", 1)
+    ee.emit("test", 2)
+    assert results == [1, 2]
+    # Once
+    once_results = []
+    ee.once("once", lambda x: once_results.append(x))
+    ee.emit("once", "a")
+    ee.emit("once", "b")
+    assert once_results == ["a"]
+    # Wildcard
     wild = []
-    ee.on("*", lambda event, *a: wild.append(event))
-    ee.emit("foo")
-    assert "foo" in wild
-    # off
-    ee.off("data")
-    assert ee.listener_count("data") == 0
-    print("OK: event_emitter")
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        test()
-    else:
-        print("Usage: event_emitter.py test")
+    ee.on("user.*", lambda x: wild.append(x))
+    ee.emit("user.login", "alice")
+    ee.emit("user.logout", "bob")
+    assert wild == ["alice", "bob"]
+    # Off
+    ee.off("test")
+    ee.emit("test", 3)
+    assert results == [1, 2]
+    # Count
+    assert ee.listener_count("user.*") == 1
+    print("  event_emitter: ALL TESTS PASSED")
