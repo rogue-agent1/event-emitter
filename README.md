@@ -1,7 +1,11 @@
-Pub/sub event system with wildcards, once listeners, typed events
+# event-emitter
+
+Event emitter with once, wildcard, and priority listeners.
+
+## Usage
 
 ```bash
 python3 event_emitter.py test
 ```
 
-Zero deps. Python 3.8+.
+Zero dependencies. Python 3.8+.

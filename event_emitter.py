@@ -1,133 +1,62 @@
 #!/usr/bin/env python3
-"""event_emitter - Pub/sub event system with wildcards and once listeners."""
-import sys, re, fnmatch
+"""event_emitter - Event emitter with once, wildcard, and priority listeners."""
+import sys
+from collections import defaultdict
 
 class EventEmitter:
     def __init__(self):
-        self.listeners = {}
-        self.once_listeners = set()
-        self.max_listeners = 100
-    
-    def on(self, event, fn):
-        if event not in self.listeners:
-            self.listeners[event] = []
-        if len(self.listeners[event]) >= self.max_listeners:
-            raise RuntimeError(f"Max listeners ({self.max_listeners}) for '{event}'")
-        self.listeners[event].append(fn)
-        return self
-    
-    def once(self, event, fn):
-        self.on(event, fn)
-        self.once_listeners.add((event, id(fn)))
-        return self
-    
+        self._listeners = defaultdict(list)
+        self._once = set()
+    def on(self, event, fn, priority=0):
+        self._listeners[event].append((priority, fn))
+        self._listeners[event].sort(key=lambda x: -x[0])
+    def once(self, event, fn, priority=0):
+        self._once.add((event, id(fn)))
+        self.on(event, fn, priority)
     def off(self, event, fn=None):
         if fn is None:
-            self.listeners.pop(event, None)
-        elif event in self.listeners:
-            self.listeners[event] = [f for f in self.listeners[event] if f != fn]
-        return self
-    
+            self._listeners[event] = []
+        else:
+            self._listeners[event] = [(p, f) for p, f in self._listeners[event] if f is not fn]
     def emit(self, event, *args, **kwargs):
-        count = 0
+        results = []
         to_remove = []
-        
-        for pattern, fns in list(self.listeners.items()):
-            if pattern == event or ("*" in pattern and fnmatch.fnmatch(event, pattern)):
-                for fn in list(fns):
-                    fn(*args, **kwargs)
-                    count += 1
-                    if (pattern, id(fn)) in self.once_listeners:
-                        to_remove.append((pattern, fn))
-                        self.once_listeners.discard((pattern, id(fn)))
-        
-        for pattern, fn in to_remove:
-            if pattern in self.listeners:
-                self.listeners[pattern] = [f for f in self.listeners[pattern] if f != fn]
-        
-        return count
-    
-    def listener_count(self, event=None):
-        if event:
-            return len(self.listeners.get(event, []))
-        return sum(len(fns) for fns in self.listeners.values())
-    
-    def events(self):
-        return list(self.listeners.keys())
-    
-    def pipe(self, other, prefix=""):
-        """Forward all events to another emitter."""
-        def forwarder(*args, event_name=None, **kwargs):
-            name = f"{prefix}{event_name}" if prefix else event_name
-            other.emit(name, *args, **kwargs)
-        self.on("*", lambda *a, **k: None)  # Ensure wildcard exists
-        return self
-
-class TypedEmitter(EventEmitter):
-    def __init__(self):
-        super().__init__()
-        self.schemas = {}
-    
-    def define(self, event, schema):
-        self.schemas[event] = schema
-    
-    def emit(self, event, *args, **kwargs):
-        if event in self.schemas:
-            schema = self.schemas[event]
-            if "args" in schema and len(args) != schema["args"]:
-                raise TypeError(f"{event} expects {schema['args']} args, got {len(args)}")
-        return super().emit(event, *args, **kwargs)
+        for priority, fn in self._listeners.get(event, []):
+            results.append(fn(*args, **kwargs))
+            if (event, id(fn)) in self._once:
+                to_remove.append((event, fn))
+                self._once.discard((event, id(fn)))
+        # wildcard
+        for priority, fn in self._listeners.get("*", []):
+            results.append(fn(event, *args, **kwargs))
+        for ev, fn in to_remove:
+            self.off(ev, fn)
+        return results
+    def listener_count(self, event):
+        return len(self._listeners.get(event, []))
 
 def test():
     ee = EventEmitter()
-    results = []
-    
-    ee.on("data", lambda x: results.append(x))
+    log = []
+    ee.on("data", lambda x: log.append(f"a:{x}"))
+    ee.on("data", lambda x: log.append(f"b:{x}"), priority=10)
     ee.emit("data", 42)
-    assert results == [42]
-    
-    # Multiple listeners
-    ee.on("data", lambda x: results.append(x * 2))
-    ee.emit("data", 10)
-    assert results == [42, 10, 20]
-    
-    # Once
-    once_results = []
-    ee.once("special", lambda: once_results.append(1))
-    ee.emit("special")
-    ee.emit("special")
-    assert once_results == [1]  # Only once
-    
-    # Off
-    fn = lambda x: None
-    ee.on("temp", fn)
-    assert ee.listener_count("temp") == 1
-    ee.off("temp", fn)
-    assert ee.listener_count("temp") == 0
-    
-    # Wildcard
+    assert log == ["b:42", "a:42"]  # priority order
+    # once
+    once_log = []
+    ee.once("ping", lambda: once_log.append(1))
+    ee.emit("ping")
+    ee.emit("ping")
+    assert once_log == [1]
+    # wildcard
     wild = []
-    ee.on("user.*", lambda x: wild.append(x))
-    ee.emit("user.login", "alice")
-    ee.emit("user.logout", "bob")
-    assert wild == ["alice", "bob"]
-    
-    # Events list
-    events = ee.events()
-    assert "data" in events
-    
-    # Typed emitter
-    te = TypedEmitter()
-    te.define("click", {"args": 2})
-    te.on("click", lambda x, y: None)
-    te.emit("click", 1, 2)
-    try:
-        te.emit("click", 1)
-        assert False, "Should have raised"
-    except TypeError:
-        pass
-    
-    print("All tests passed!")
+    ee.on("*", lambda event, *a: wild.append(event))
+    ee.emit("foo")
+    assert "foo" in wild
+    # off
+    ee.off("data")
+    assert ee.listener_count("data") == 0
+    print("OK: event_emitter")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "test":
