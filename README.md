@@ -1,11 +1,7 @@
-# event-emitter
-
-Event-driven programming pattern.""".
-
-Zero dependencies. Python 3.8+.
-
-## Usage
+Pub/sub event system with wildcards, once listeners, typed events
 
 ```bash
-python3 event_emitter.py --help
+python3 event_emitter.py test
 ```
+
+Zero deps. Python 3.8+.
